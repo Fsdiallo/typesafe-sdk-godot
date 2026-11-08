@@ -107,6 +107,41 @@ func _run() -> void:
 	check(a_out.size() > 0 and a_out[0] is SystemOneResponse, "async client succeeds")
 	aclient.aclose()
 
+	# 7. Live Vision & Box test with TypeSafeImage
+	var g_img := Image.create(512, 512, false, Image.FORMAT_RGBA8)
+	g_img.fill(Color(1.0, 0.0, 0.0, 1.0)) # Red square
+	var test_ts_image := TypeSafeImage.from_image(g_img, "png")
+	var v_client := TypeSafeClient.new()
+	get_root().add_child(v_client)
+	await process_frame
+	var v_out: Array = []
+	v_client.evaluation_completed.connect(func(rr: SystemOneResponse) -> void: v_out.append(rr))
+	v_client.evaluation_failed.connect(func(e: TypeSafeError) -> void: v_out.append(e))
+	var v_rc := v_client.system_one(
+		{"photo": test_ts_image, "desc": "Solid red canvas"},
+		{
+			"is_red": Noul.new("Is the photo predominantly red?"),
+			"canvas": Box.new("The red canvas in `photo`")
+		}
+	)
+	check(v_rc == OK, "vision system_one returns OK")
+	check(await _wait_for(func() -> bool: return v_out.size() > 0, 90.0), "vision response arrives")
+	if v_out.size() > 0 and v_out[0] is SystemOneResponse:
+		var vr: SystemOneResponse = v_out[0]
+		check(vr.has_noul("is_red") and vr.nouls["is_red"].noul > 0.5, "live noul on image evaluated")
+		check(vr.has_box("canvas"), "live box question evaluated")
+		if vr.has_box("canvas"):
+			var b_ans: BoxAnswer = vr.get_box("canvas")
+			check(b_ans.box != null and b_ans.box.top >= 0.0 and b_ans.box.bottom <= 1.0, "valid box coordinates")
+			print("live box: ", b_ans.box.to_dict(), " conf: ", b_ans.confidence, " rect2: ", b_ans.box.to_rect2(512, 512))
+	else:
+		var err_detail := str(v_out[0])
+		if v_out.size() > 0 and v_out[0] is TypeSafeError:
+			err_detail = (v_out[0] as TypeSafeError).to_string()
+		printerr("vision call failed: ", err_detail)
+		check(false, "vision call succeeds")
+	v_client.close()
+
 	client.close()
 	bad.close()
 	dead.close()
@@ -115,6 +150,8 @@ func _run() -> void:
 		print("E2E ALL PASSED")
 	else:
 		printerr("E2E FAILURES: %d" % _fails)
+	await process_frame
+	await process_frame
 	quit(_fails)
 
 

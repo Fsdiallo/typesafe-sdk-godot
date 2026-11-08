@@ -15,6 +15,7 @@ var raw_http_response: Dictionary = {}
 var _nouls: Dictionary = {}
 var _choices: Dictionary = {}
 var _scores: Dictionary = {}
+var _boxes: Dictionary = {}
 
 func _init(p_model: String = "", p_usage: Usage = null, p_raw_answers: Dictionary = {}, p_request_id: String = "", p_raw_http_response: Dictionary = {}) -> void:
 	model = p_model
@@ -32,6 +33,7 @@ func _parse_answers() -> void:
 	_nouls = {}
 	_choices = {}
 	_scores = {}
+	_boxes = {}
 	answers = {}
 
 	for key in raw_answers:
@@ -53,6 +55,10 @@ func _parse_answers() -> void:
 				var s := ScoreAnswer.from_dict(answer_data)
 				_scores[key] = s
 				answers[key] = s
+			"box":
+				var b := BoxAnswer.from_dict(answer_data)
+				_boxes[key] = b
+				answers[key] = b
 			_:
 				TypeSafeLogger.warning("Unknown answer kind '%s' for question '%s'; skipping." % [answer_type, str(key)])
 
@@ -66,6 +72,9 @@ func get_choices() -> Dictionary:
 func get_scores() -> Dictionary:
 	return _scores
 
+func get_boxes() -> Dictionary:
+	return _boxes
+
 func get_answers() -> Dictionary:
 	return answers
 
@@ -78,6 +87,9 @@ func get_choice(p_key: String) -> ChoiceAnswer:
 func get_score(p_key: String) -> ScoreAnswer:
 	return _scores.get(p_key)
 
+func get_box(p_key: String) -> BoxAnswer:
+	return _boxes.get(p_key)
+
 func has_noul(p_key: String) -> bool:
 	return _nouls.has(p_key)
 
@@ -86,6 +98,9 @@ func has_choice(p_key: String) -> bool:
 
 func has_score(p_key: String) -> bool:
 	return _scores.has(p_key)
+
+func has_box(p_key: String) -> bool:
+	return _boxes.has(p_key)
 
 func get_request_id() -> String:
 	return request_id
@@ -99,6 +114,7 @@ func _get_property_list() -> Array[Dictionary]:
 		{"name": "nouls", "type": TYPE_DICTIONARY, "usage": PROPERTY_USAGE_READ_ONLY},
 		{"name": "choices", "type": TYPE_DICTIONARY, "usage": PROPERTY_USAGE_READ_ONLY},
 		{"name": "scores", "type": TYPE_DICTIONARY, "usage": PROPERTY_USAGE_READ_ONLY},
+		{"name": "boxes", "type": TYPE_DICTIONARY, "usage": PROPERTY_USAGE_READ_ONLY},
 		{"name": "request_id", "type": TYPE_STRING, "usage": PROPERTY_USAGE_READ_ONLY},
 	]
 
@@ -110,6 +126,8 @@ func _get(p_property: StringName) -> Variant:
 			return _choices
 		"scores":
 			return _scores
+		"boxes":
+			return _boxes
 		"request_id":
 			return request_id
 		_:

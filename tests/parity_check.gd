@@ -14,6 +14,10 @@ func check(p_cond: bool, p_label: String) -> void:
 
 
 func _init() -> void:
+	_run.call_deferred()
+
+
+func _run() -> void:
 	# --- Questions: Python-style constructors + wire format ---
 	var n := Noul.new("Is this about billing?")
 	check(n.to_dict() == {"type": "noul", "instructions": "Is this about billing?"}, "noul to_dict")
@@ -28,6 +32,56 @@ func _init() -> void:
 	var nstruct := Noul.new({"question": "Same person?", "candidate": {"name": "John"}})
 	check(typeof(nstruct.to_dict()["instructions"]) == TYPE_DICTIONARY, "structured instructions dict")
 
+	# --- Box Question Primitive ---
+	var bx := Box.new("Find the coffee mug")
+	check(bx.to_dict() == {"type": "box", "instructions": "Find the coffee mug"}, "box to_dict with instructions")
+	var bx_empty := Box.new()
+	check(bx_empty.to_dict() == {"type": "box"}, "box to_dict empty instructions")
+
+	# --- BoxCoordinates & BoxAnswer ---
+	var coords := BoxCoordinates.new(0.2, 0.8, 0.1, 0.7)
+	check(coords.to_dict() == {"top": 0.2, "bottom": 0.8, "left": 0.1, "right": 0.7}, "box coordinates to_dict")
+	var rect := coords.to_rect2(100.0, 200.0)
+	check(rect.position.x == 10.0 and rect.position.y == 40.0 and rect.size.x == 60.0 and rect.size.y == 120.0, "box coordinates to_rect2 scaling")
+	var inverted := BoxCoordinates.new(0.8, 0.2, 0.7, 0.1).to_rect2(100.0, 200.0)
+	check(inverted.size.x > 0.0 and inverted.size.y > 0.0, "inverted coordinates abs() conversion")
+
+	var ba_dict := {
+		"type": "box",
+		"box": {"top": 0.25, "bottom": 0.75, "left": 0.15, "right": 0.65},
+		"confidence": 0.94,
+	}
+	var ba := BoxAnswer.from_dict(ba_dict)
+	check(ba.type == "box" and ba.box.top == 0.25 and ba.confidence == 0.94 and ba.has_confidence(), "box answer parse + confidence")
+	var ba_null := BoxAnswer.from_dict({"type": "box", "box": {"top": 0.0, "bottom": 1.0, "left": 0.0, "right": 1.0}, "confidence": null})
+	check(not ba_null.has_confidence() and ba_null.get_confidence_or(0.5) == 0.5, "box answer null confidence handling")
+
+	# --- TypeSafeImage ---
+	var png_header := PackedByteArray([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00])
+	var img := TypeSafeImage.from_buffer(png_header)
+	check(img != null and img.format == "png" and img.content_type == "image/png", "typesafe image from buffer format detect")
+	check(img.reference.begins_with("<image:") and img.reference.ends_with(">"), "typesafe image reference format")
+	var g_img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+	var img_from_godot := TypeSafeImage.from_image(g_img)
+	check(img_from_godot != null and img_from_godot.data.size() > 0 and img_from_godot.format == "png", "typesafe image from Godot Image")
+
+	# --- AssetExtractor Non-Destructive Copy-on-Write ---
+	var orig_dict := {"player": {"avatar": img, "hp": 100}}
+	var orig_q := {"mug": Box.new("Find the mug")}
+	var ext_res := AssetExtractor.extract(orig_dict, orig_q)
+	check(orig_dict["player"]["avatar"] == img, "asset extractor does NOT mutate user dictionary")
+	check(ext_res.cloned_state["player"]["avatar"] == img.reference, "asset extractor substitutes reference string in clone")
+	check(ext_res.assets.has(img.reference), "asset extractor registers image in assets map")
+	check(ext_res.has_images, "asset extractor flags has_images true")
+
+	# --- TypeSafeMultipart RFC 7578 Encoding ---
+	var mp_res := TypeSafeMultipart.encode_request("{\"model\":\"jev-latest\"}", {img.reference: img})
+	check(mp_res["content_type"].begins_with("multipart/form-data; boundary="), "multipart content type header")
+	var mp_body: PackedByteArray = mp_res["body"]
+	check(mp_body.size() > 0, "multipart body encoded")
+	var mp_str := mp_body.get_string_from_utf8()
+	check(mp_str.contains("name=\"request\"") and mp_str.contains("name=\"asset-0\""), "multipart parts named properly")
+
 	var client := TypeSafeClient.new("test-key-123")
 
 	# --- Validation (mirrors Python: nonempty questions, nonempty score criteria) ---
@@ -35,7 +89,9 @@ func _init() -> void:
 	check(client._validate_questions({"a": Score.new("Q?", [])}) == ERR_INVALID_PARAMETER, "empty score criteria rejected")
 	check(client._validate_questions({"a": {"type": "score", "instructions": "Q?", "criteria": []}}) == ERR_INVALID_PARAMETER, "empty raw score criteria rejected")
 	check(client._validate_questions({"a": {"type": "choice", "instructions": "Q?"}}) == ERR_INVALID_PARAMETER, "choice without criteria rejected")
-	var ok_q := {"billing": Noul.new("B?"), "tone": {"type": "choice", "instructions": "T?", "criteria": {"a": null}}, "u": Score.new("U?", ["l", "h"])}
+	check(client._validate_questions({"box": Box.new("mug")}) == OK, "box question accepted")
+	check(client._validate_questions({"box": {"type": "box", "instructions": "mug"}}) == OK, "raw box question accepted")
+	var ok_q := {"billing": Noul.new("B?"), "tone": {"type": "choice", "instructions": "T?", "criteria": {"a": null}}, "u": Score.new("U?", ["l", "h"]), "loc": Box.new("L?")}
 	check(client._validate_questions(ok_q) == OK, "mixed object+raw questions accepted")
 	check(client.system_one(null, ok_q) == ERR_INVALID_PARAMETER, "null state rejected")
 
@@ -51,29 +107,35 @@ func _init() -> void:
 	check(hd.get("Authorization") == "Bearer test-key-123", "authorization protected")
 	check(hd.get("Accept") == "application/json", "accept protected")
 	check(hd.get("X-Custom") == "v", "custom header passes")
+	var h_danger := client._build_headers({}, "application/json", true)
+	var hd_danger := client._headers_to_dict(h_danger)
+	check(hd_danger.get("TypeSafe-Danger-Zone-Images") == "true", "danger zone header automatically injected")
 
 	# --- Response parsing ---
 	var raw := {
-		"model": "jev-1.13.0",
+		"model": "jev-1.14.0",
 		"usage": {"input_tokens": 296, "output_tokens": 20},
 		"answers": {
 			"is_urgent": {"type": "noul", "noul": 0.95},
 			"dept": {"type": "choice", "choice": "billing", "confidence": 0.81, "probabilities": {"billing": 0.88, "technical": 0.12}},
 			"frus": {"type": "score", "score": 1.05, "confidence": 0.92, "legend": {"0": "Calm", "1": "Frustrated"}, "probabilities": {"0": 0.0, "1": 0.95, "2": 0.05}},
+			"target": {"type": "box", "box": {"top": 0.1, "bottom": 0.9, "left": 0.2, "right": 0.8}, "confidence": 0.96},
 			"future": {"type": "quantum", "value": 1},
 		},
 	}
 	var resp := SystemOneResponse.from_dict(raw, {"X-Typesafe-Request-Id": "req-1"}, {"status": 200})
-	check(resp.model == "jev-1.13.0", "response model")
+	check(resp.model == "jev-1.14.0", "response model")
 	check(resp.nouls["is_urgent"].noul == 0.95, "noul answer")
 	check(resp.choices["dept"].choice == "billing" and resp.choices["dept"].confidence == 0.81, "choice answer + confidence")
 	check(resp.scores["frus"].score == 1.05 and resp.scores["frus"].legend.has(1) and resp.scores["frus"].probabilities.has(1), "score answer int keys")
-	check(resp.answers.size() == 3, "unknown answer kind skipped")
+	check(resp.has_box("target") and resp.boxes["target"].box.top == 0.1 and resp.boxes["target"].confidence == 0.96, "box answer in response")
+	check(resp.answers.size() == 4, "unknown answer kind skipped while box is kept")
 	check(resp.request_id == "req-1", "request_id from header")
 	check(resp.usage.input_tokens == 296 and resp.usage.output_tokens == 20, "usage tokens")
 	var resp2 := SystemOneResponse.from_dict({"model": "m", "answers": {}}, {}, {})
 	check(resp2.usage.input_tokens == null and resp2.usage.output_tokens == null, "usage null when unreported")
 	check(resp2.get_noul("missing") == null, "missing answer returns null")
+	check(resp2.get_box("missing") == null, "missing box returns null")
 
 	# --- Errors ---
 	var rl := TypeSafeRateLimitError.new(429, {}, {"retry-after-ms": "250"}, "", "ep")
@@ -125,9 +187,16 @@ func _init() -> void:
 	var aclient := AsyncTypeSafeClient.new("k")
 	check(aclient is TypeSafeClient and aclient.config.default_model == "jev-latest", "async client constructs")
 
+	# Clean up clients to ensure 0 ObjectDB leaks on exit
+	client.close()
+	aclient.close()
+
 	print("----")
 	if _fails == 0:
 		print("ALL PARITY CHECKS PASSED")
 	else:
 		printerr("FAILURES: %d" % _fails)
+
+	await process_frame
+	await process_frame
 	quit(_fails)

@@ -14,4 +14,6 @@ const DEFAULT_MODEL: String = "jev-latest"
 const DEFAULT_TIMEOUT: float = 10.0
 
 const SDK_NAME: String = "typesafe-sdk-godot"
-const SDK_VERSION: String = "0.1.0"
+const SDK_VERSION: String = "0.2.0"
+
+const IMAGES_HEADER: String = "TypeSafe-Danger-Zone-Images"

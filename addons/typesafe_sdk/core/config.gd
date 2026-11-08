@@ -16,6 +16,7 @@ var base_url: String = DEFAULT_BASE_URL
 var default_model: String = DEFAULT_MODEL
 var timeout: float = DEFAULT_TIMEOUT
 var default_headers: Dictionary = {}
+var enable_zstd: bool = false
 
 static func resolve(p_api_key: Variant = null, p_base_url: Variant = null, p_default_model: Variant = null, p_timeout: float = -1.0, p_default_headers: Dictionary = {}) -> TypeSafeConfig:
 	var config = TypeSafeConfig.new()

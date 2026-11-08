@@ -46,11 +46,12 @@ client.system_one(
 ## Layout
 
 - `clients/` — `TypeSafeClient`, `AsyncTypeSafeClient`, `Models`
-- `questions/` — `Question`, `Noul`, `Choice`, `Score`
-- `answers/` — `NoulAnswer`, `ChoiceAnswer`, `ScoreAnswer`
+- `questions/` — `Question`, `Noul`, `Choice`, `Score`, `Box`
+- `answers/` — `NoulAnswer`, `ChoiceAnswer`, `ScoreAnswer`, `BoxAnswer`, `BoxCoordinates`
+- `assets/` — `TypeSafeImage`, `AssetExtractor`
 - `responses/` — `SystemOneResponse`, `Usage`, `ListModelsResponse`, `ModelMetadata`
 - `errors/` — `TypeSafeError` and all API/connection/timeout/validation errors
-- `core/` — `TypeSafeConfig`, `TypeSafeConstants`, `TypeSafeLogger`, `RetryPolicy`
+- `core/` — `TypeSafeConfig`, `TypeSafeConstants`, `TypeSafeLogger`, `RetryPolicy`, `TypeSafeMultipart`
 - `examples/` — runnable scene script
 
 - `AsyncTypeSafeClient` extends `TypeSafeClient` (same signal-based async API;
@@ -58,26 +59,33 @@ client.system_one(
 - `client.models.list()` mirrors `client.models.list()` in Python
   (`list_completed` / `list_failed` signals).
 - `system_one(state, questions, model, retry, timeout, extra_headers,
-  extra_body, response_model)` mirrors Python. `state` must not be null.
-  Questions are keyed by name; raw Dictionaries may be mixed with objects and
-  pass unknown fields (e.g. `weight`) through untouched. `extra_body` shallow
-  merges last-write-wins. `response_model` is a
-  `Callable(raw_json: Dictionary, headers: Dictionary) -> Variant` (GDScript
-  equivalent of pydantic `response_model`); results emit
-  `custom_evaluation_completed`.
+  extra_body, response_model)` mirrors Python. `state` accepts String,
+  Dictionary, Array, or `TypeSafeImage`.
+- Inline image assets: place `TypeSafeImage` objects anywhere in `state` or questions.
+  The SDK automatically extracts them, substitutes unique `<image:uuid>` reference
+  strings without mutating user state, builds RFC 7578 multipart/form-data uploads,
+  and injects the `TypeSafe-Danger-Zone-Images: true` header.
+- `system_one_with_assets(state, questions, assets, ...)` allows passing explicit
+  assets dictionaries or arrays.
+- `Box` questions find where something is in an image, returning `BoxAnswer`
+  with normalized bounding edges in `.box` (`top`, `bottom`, `left`, `right`)
+  and `.confidence`. Call `box_answer.box.to_rect2(width, height)` to get a
+  Godot `Rect2`.
 - `extra_headers` cannot override `Authorization`, `Accept`, or `User-Agent`.
 - Unknown answer kinds are skipped with a warning; unknown response fields are
   ignored. `response.answers` holds every answer; `.nouls` / `.choices` /
-  `.scores` filter by type. `response.request_id` and
+  `.scores` / `.boxes` filter by type. `response.request_id` and
   `response.raw_http_response` mirror Python.
 
 ## Classes
 
 - Client: `TypeSafeClient`, `AsyncTypeSafeClient`
-- Questions: `Question`, `Noul`, `Choice`, `Score`
+- Questions: `Question`, `Noul`, `Choice`, `Score`, `Box`
 - Answers: `NoulAnswer` (noul), `ChoiceAnswer` (choice, confidence,
   probabilities), `ScoreAnswer` (score float, confidence, legend/probabilities
-  keyed by int level)
+  keyed by int level), `BoxAnswer` (box coordinates, confidence), `BoxCoordinates`
+  (top, bottom, left, right, `to_rect2()`)
+- Assets: `TypeSafeImage` (from Godot `Image`, `FileAccess` paths, `PackedByteArray`, or Base64)
 - Responses: `SystemOneResponse`, `Usage` (nullable tokens),
   `ModelMetadata`, `ListModelsResponse`
 - Errors: `TypeSafeError`, `TypeSafeAPIError` (`.status`/`.status_code`,
@@ -96,3 +104,5 @@ client.system_one(
   `Godot --headless --path <project> --script res://tests/parity_check.gd`
 - `tests/live_e2e_check.gd` — live round-trip, needs `TYPESAFE_API_KEY`:
   same invocation with `--script res://tests/live_e2e_check.gd`
+- `tests/test_end_user_experience.gd` — comprehensive end-user stability suite:
+  same invocation with `--script res://tests/test_end_user_experience.gd`

@@ -63,10 +63,15 @@ func _on_evaluation_completed(response: SystemOneResponse) -> void:
 		var urgency := response.get_score("urgency")
 		print("Urgency (score): ", urgency.score, " (confidence: ", urgency.confidence, ", legend: ", urgency.legend, ", probabilities: ", urgency.probabilities, ")")
 
+	if response.has_box("target"):
+		var target_box := response.get_box("target")
+		print("Target (box): ", target_box.box.to_dict(), " (confidence: ", target_box.confidence, ", rect2: ", target_box.box.to_rect2(), ")")
+
 	print("All answers: ", response.answers)
 	print("All nouls: ", response.nouls)
 	print("All choices: ", response.choices)
 	print("All scores: ", response.scores)
+	print("All boxes: ", response.boxes)
 
 
 func _on_custom_response(response: Variant) -> void:

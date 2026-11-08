@@ -268,3 +268,7 @@ func _headers_to_dict(headers: PackedStringArray) -> Dictionary:
 func close() -> void:
 	for request_id in _pending_requests.keys():
 		_cleanup_request(request_id)
+	if is_inside_tree():
+		queue_free()
+	else:
+		call_deferred("free")
