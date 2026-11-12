@@ -35,10 +35,12 @@ static func extract(p_state: Variant, p_questions: Dictionary, p_explicit_assets
 			result.assets[(p_explicit_assets as TypeSafeImage).reference] = p_explicit_assets
 
 	# 2. Extract and clone state
-	var visited := {}
-	var state_res = _clone_and_extract(p_state, result.assets, known_assets, visited, 0)
-	if state_res is String and state_res.begins_with("__ERROR__:"):
-		result.error_message = state_res.trim_prefix("__ERROR__:")
+	# Depth/cycle failures surface through p_error (single-element Array)
+	# instead of a sentinel string, so they can never leak into the payload.
+	var error: Array = []
+	var state_res = _clone_and_extract(p_state, result.assets, known_assets, error, 0)
+	if not error.is_empty():
+		result.error_message = str(error[0])
 		return result
 	result.cloned_state = state_res
 
@@ -47,10 +49,16 @@ static func extract(p_state: Variant, p_questions: Dictionary, p_explicit_assets
 		var q = p_questions[q_key]
 		if q is Question:
 			var q_dict: Dictionary = (q as Question).to_dict()
-			var cloned_q = _clone_and_extract(q_dict, result.assets, known_assets, visited, 0)
+			var cloned_q = _clone_and_extract(q_dict, result.assets, known_assets, error, 0)
+			if not error.is_empty():
+				result.error_message = str(error[0])
+				return result
 			result.cloned_questions[q_key] = cloned_q
 		elif typeof(q) == TYPE_DICTIONARY:
-			var cloned_q = _clone_and_extract(q, result.assets, known_assets, visited, 0)
+			var cloned_q = _clone_and_extract(q, result.assets, known_assets, error, 0)
+			if not error.is_empty():
+				result.error_message = str(error[0])
+				return result
 			result.cloned_questions[q_key] = cloned_q
 		else:
 			result.cloned_questions[q_key] = q
@@ -59,9 +67,11 @@ static func extract(p_state: Variant, p_questions: Dictionary, p_explicit_assets
 	return result
 
 
-static func _clone_and_extract(p_val: Variant, out_assets: Dictionary, known_assets: Dictionary, visited: Dictionary, depth: int) -> Variant:
+static func _clone_and_extract(p_val: Variant, out_assets: Dictionary, known_assets: Dictionary, p_error: Array, depth: int) -> Variant:
 	if depth > MAX_DEPTH:
-		return "__ERROR__:Payload exceeds maximum nesting depth (%d). Possible circular reference." % MAX_DEPTH
+		if p_error.is_empty():
+			p_error.append("Payload exceeds maximum nesting depth (%d). Possible circular reference." % MAX_DEPTH)
+		return null
 
 	if p_val is TypeSafeImage:
 		var img: TypeSafeImage = p_val
@@ -75,7 +85,10 @@ static func _clone_and_extract(p_val: Variant, out_assets: Dictionary, known_ass
 			for k in dict_val:
 				# Object keys must remain text (not replaced)
 				var key_str := str(k)
-				cloned_dict[key_str] = _clone_and_extract(dict_val[k], out_assets, known_assets, visited, depth + 1)
+				var cloned_val = _clone_and_extract(dict_val[k], out_assets, known_assets, p_error, depth + 1)
+				if not p_error.is_empty():
+					return null
+				cloned_dict[key_str] = cloned_val
 			return cloned_dict
 
 		TYPE_ARRAY:
@@ -83,7 +96,10 @@ static func _clone_and_extract(p_val: Variant, out_assets: Dictionary, known_ass
 			var cloned_arr := []
 			cloned_arr.resize(arr_val.size())
 			for i in arr_val.size():
-				cloned_arr[i] = _clone_and_extract(arr_val[i], out_assets, known_assets, visited, depth + 1)
+				var cloned_item = _clone_and_extract(arr_val[i], out_assets, known_assets, p_error, depth + 1)
+				if not p_error.is_empty():
+					return null
+				cloned_arr[i] = cloned_item
 			return cloned_arr
 
 		TYPE_STRING:

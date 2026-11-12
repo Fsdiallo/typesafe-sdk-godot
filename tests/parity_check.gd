@@ -13,6 +13,22 @@ func check(p_cond: bool, p_label: String) -> void:
 		printerr("FAIL: ", p_label)
 
 
+func _payload_contains(p_val: Variant, p_needle: String) -> bool:
+	if p_val is String:
+		return (p_val as String).contains(p_needle)
+	if p_val is Dictionary:
+		for k in p_val:
+			if _payload_contains((p_val as Dictionary)[k], p_needle):
+				return true
+		return false
+	if p_val is Array:
+		for item in p_val:
+			if _payload_contains(item, p_needle):
+				return true
+		return false
+	return false
+
+
 func _init() -> void:
 	_run.call_deferred()
 
@@ -73,6 +89,33 @@ func _run() -> void:
 	check(ext_res.cloned_state["player"]["avatar"] == img.reference, "asset extractor substitutes reference string in clone")
 	check(ext_res.assets.has(img.reference), "asset extractor registers image in assets map")
 	check(ext_res.has_images, "asset extractor flags has_images true")
+
+	# --- AssetExtractor: over-deep / circular payloads fail loud, never ship a sentinel string ---
+	var deep_state := {}
+	var deep_cur: Dictionary = deep_state
+	for i in range(40):
+		var deep_nxt := {}
+		deep_cur["child"] = deep_nxt
+		deep_cur = deep_nxt
+	deep_cur["leaf"] = "hello"
+	var deep_res := AssetExtractor.extract(deep_state, {"q": Noul.new("Deep?")})
+	check(deep_res.error_message != "" and deep_res.error_message.contains("maximum nesting depth"), "over-deep state reports depth error")
+	check(not _payload_contains(deep_res.cloned_state, "__ERROR__"), "over-deep state never ships sentinel string")
+	var deep_q := {}
+	var deep_qcur: Dictionary = deep_q
+	for i in range(40):
+		var deep_qnxt := {}
+		deep_qcur["child"] = deep_qnxt
+		deep_qcur = deep_qnxt
+	deep_qcur["leaf"] = "x"
+	var deep_qres := AssetExtractor.extract({"ok": 1}, {"q": {"type": "noul", "instructions": "hi", "extra": deep_q}})
+	check(deep_qres.error_message != "" and deep_qres.error_message.contains("maximum nesting depth"), "over-deep question reports depth error")
+	check(not _payload_contains(deep_qres.cloned_questions, "__ERROR__"), "over-deep question never ships sentinel string")
+	var cyc := {"name": "loop"}
+	cyc["self"] = cyc
+	var cyc_res := AssetExtractor.extract(cyc, {"q": Noul.new("Cycle?")})
+	check(cyc_res.error_message != "" and cyc_res.error_message.contains("circular"), "circular state reports depth error")
+	check(not _payload_contains(cyc_res.cloned_state, "__ERROR__"), "circular state never ships sentinel string")
 
 	# --- TypeSafeMultipart RFC 7578 Encoding ---
 	var mp_res := TypeSafeMultipart.encode_request("{\"model\":\"jev-latest\"}", {img.reference: img})
